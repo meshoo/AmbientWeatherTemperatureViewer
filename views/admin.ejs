@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Admin — AW Graphs</title>
+    <%- include('partials/head') %>
+</head>
+<body>
+    <%- include('partials/nav') %>
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">Admin</h1>
+        </div>
+
+        <!-- Status -->
+        <div class="card" style="margin-bottom:1rem;">
+            <h2 style="margin:0 0 1rem;font-size:1rem;">Collection Status</h2>
+            <div id="statusContent" style="font-size:0.875rem;color:var(--text-muted)">Loading…</div>
+        </div>
+
+        <!-- Manual Backfill -->
+        <div class="card" style="margin-bottom:1rem;">
+            <h2 style="margin:0 0 1rem;font-size:1rem;">Manual Backfill</h2>
+            <p style="font-size:0.875rem;color:var(--text-muted);margin:0 0 0.75rem;">
+                Fetch missing Ambient Weather data for a specific date range.
+                The backfill runs in the background — check status above to monitor progress.
+            </p>
+            <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+                <div class="control-group">
+                    <label style="font-size:0.875rem;">From:</label>
+                    <input type="date" id="backfillStart" class="select">
+                </div>
+                <div class="control-group">
+                    <label style="font-size:0.875rem;">To:</label>
+                    <input type="date" id="backfillEnd" class="select">
+                </div>
+                <button class="btn" id="backfillBtn">Start Backfill</button>
+            </div>
+            <div id="backfillMsg" style="margin-top:0.5rem;font-size:0.875rem;"></div>
+        </div>
+
+        <!-- Channel Config -->
+        <div class="card">
+            <h2 style="margin:0 0 1rem;font-size:1rem;">Channel Configuration</h2>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Key</th>
+                        <th>Name</th>
+                        <th>Source</th>
+                        <th>Enabled</th>
+                        <th>Color</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% channels.forEach(ch => { %>
+                    <tr data-key="<%= ch.key %>">
+                        <td><code><%= ch.key %></code></td>
+                        <td>
+                            <input type="text" class="channel-input" value="<%= ch.name %>"
+                                   style="width:140px;" data-field="name">
+                        </td>
+                        <td><%= ch.source %></td>
+                        <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" <%= ch.enabled ? 'checked' : '' %> data-field="enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <input type="color" value="<%= ch.color %>" data-field="color"
+                                   style="width:40px;height:28px;border:none;cursor:pointer;background:none;">
+                        </td>
+                        <td>
+                            <button class="btn btn-sm save-channel-btn">Save</button>
+                        </td>
+                    </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // ── Status polling ──
+        async function loadStatus() {
+            try {
+                const res = await fetch('/api/admin/status');
+                const s = await res.json();
+
+                const fmt = ts => ts ? new Date(ts).toLocaleString() : 'never';
+                const dur = s => {
+                    const sec = Math.round(s);
+                    if (sec < 60) return sec + 's';
+                    if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+                    return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+                };
+
+                document.getElementById('statusContent').innerHTML = `
+                    <table class="table">
+                        <tr><td>Last AW poll</td><td>${fmt(s.collector.lastPollAt)}</td></tr>
+                        <tr><td>Backfill running</td><td>${s.collector.isBackfilling ? '<strong style="color:#2563eb">Yes</strong>' : 'No'}</td></tr>
+                        <tr><td>Total readings</td><td>${s.db.readingCount?.toLocaleString()}</td></tr>
+                        <tr><td>Oldest reading</td><td>${fmt(s.db.oldestReading)}</td></tr>
+                        <tr><td>Newest reading</td><td>${fmt(s.db.newestReading)}</td></tr>
+                        <tr><td>Server uptime</td><td>${dur(s.uptime)}</td></tr>
+                    </table>
+                `;
+            } catch {
+                document.getElementById('statusContent').textContent = 'Error loading status.';
+            }
+        }
+
+        loadStatus();
+        setInterval(loadStatus, 15000);
+
+        // ── Backfill ──
+        document.getElementById('backfillBtn').addEventListener('click', async () => {
+            const start = document.getElementById('backfillStart').value;
+            const end = document.getElementById('backfillEnd').value;
+            const msgEl = document.getElementById('backfillMsg');
+
+            if (!start || !end) {
+                msgEl.textContent = 'Select both start and end dates.';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/admin/backfill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start, end }),
+                });
+                const data = await res.json();
+                msgEl.innerHTML = `<span style="color:#166534">${data.message || 'Backfill started.'}</span>`;
+            } catch {
+                msgEl.innerHTML = '<span style="color:#991b1b">Error starting backfill.</span>';
+            }
+        });
+
+        // ── Channel save ──
+        document.querySelectorAll('.save-channel-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const row = btn.closest('tr');
+                const key = row.dataset.key;
+                const name = row.querySelector('[data-field="name"]').value.trim();
+                const enabled = row.querySelector('[data-field="enabled"]').checked;
+                const color = row.querySelector('[data-field="color"]').value;
+
+                try {
+                    await fetch(`/api/channels/${key}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, enabled, color }),
+                    });
+                    btn.textContent = 'Saved ✓';
+                    setTimeout(() => { btn.textContent = 'Save'; }, 2000);
+                } catch {
+                    btn.textContent = 'Error';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

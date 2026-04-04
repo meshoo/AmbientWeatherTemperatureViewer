@@ -1,0 +1,12 @@
+<nav class="top-nav">
+    <div class="nav-container">
+        <div class="nav-brand">AW Graphs</div>
+        <div class="nav-links">
+            <a href="/"        class="nav-item <%= currentPage === 'current'  ? 'active' : '' %>">Current</a>
+            <a href="/history" class="nav-item <%= currentPage === 'history'  ? 'active' : '' %>">History</a>
+            <a href="/compare" class="nav-item <%= currentPage === 'compare'  ? 'active' : '' %>">Compare</a>
+            <a href="/patterns"class="nav-item <%= currentPage === 'patterns' ? 'active' : '' %>">Patterns</a>
+            <a href="/admin"   class="nav-item <%= currentPage === 'admin'    ? 'active' : '' %>">Admin</a>
+        </div>
+    </div>
+</nav>

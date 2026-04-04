@@ -1,0 +1,22 @@
+{
+  "name": "claudeawgraphs",
+  "version": "1.0.0",
+  "description": "Personal weather monitoring dashboard for Ambient Weather sensors",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "USE_MOCK_DATA=true node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ambient-weather-api": "^0.0.6",
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^16.4.7",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3"
+  },
+  "license": "MIT"
+}

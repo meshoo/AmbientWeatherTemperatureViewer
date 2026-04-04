@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Temperature History — AW Graphs</title>
+    <%- include('partials/head') %>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <%- include('partials/nav') %>
+
+    <div class="container">
+        <div class="controls">
+            <div class="sensor-toggles" id="sensorToggles"></div>
+            <select class="select" id="rangeSelect">
+                <option value="24h"  <%= selectedRange === '24h'  ? 'selected' : '' %>>Last 24 Hours</option>
+                <option value="7d"   <%= selectedRange === '7d'   ? 'selected' : '' %>>Last 7 Days</option>
+                <option value="30d"  <%= selectedRange === '30d'  ? 'selected' : '' %>>Last 30 Days</option>
+                <option value="90d"  <%= selectedRange === '90d'  ? 'selected' : '' %>>Last 90 Days</option>
+            </select>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const channels = <%- JSON.stringify(channels) %>;
+        const selectedRange = '<%= selectedRange %>';
+
+        const RANGE_MS = { '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000 };
+
+        // Restore toggle visibility from localStorage
+        function getVisibility() {
+            try {
+                const stored = localStorage.getItem('history-visibility');
+                return stored ? JSON.parse(stored) : {};
+            } catch { return {}; }
+        }
+        function saveVisibility(map) {
+            localStorage.setItem('history-visibility', JSON.stringify(map));
+        }
+
+        let visibility = getVisibility();
+        let chart = null;
+
+        // Build toggle buttons
+        const togglesEl = document.getElementById('sensorToggles');
+        channels.forEach(ch => {
+            const visible = visibility[ch.key] !== false; // default on
+            const btn = document.createElement('button');
+            btn.className = 'toggle-btn' + (visible ? ' active' : '');
+            btn.textContent = ch.name;
+            btn.style.borderColor = ch.color;
+            btn.dataset.key = ch.key;
+            btn.onclick = () => {
+                const ds = chart.data.datasets.find(d => d.channelKey === ch.key);
+                if (!ds) return;
+                ds.hidden = !ds.hidden;
+                btn.classList.toggle('active', !ds.hidden);
+                visibility[ch.key] = !ds.hidden;
+                saveVisibility(visibility);
+                chart.update();
+            };
+            togglesEl.appendChild(btn);
+        });
+
+        document.getElementById('rangeSelect').addEventListener('change', e => {
+            window.location.href = `/history?range=${e.target.value}`;
+        });
+
+        function formatLabel(ts) {
+            const d = new Date(ts);
+            if (selectedRange === '24h') {
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        async function loadAndDraw() {
+            const endMs = Date.now();
+            const startMs = endMs - (RANGE_MS[selectedRange] || RANGE_MS['24h']);
+            const keys = channels.map(c => c.key).join(',');
+
+            const res = await fetch(`/api/readings?channels=${keys}&start=${startMs}&end=${endMs}`);
+            const rows = await res.json();
+
+            // Group rows by channel_key
+            const byChannel = {};
+            for (const row of rows) {
+                if (!byChannel[row.channel_key]) byChannel[row.channel_key] = [];
+                byChannel[row.channel_key].push(row);
+            }
+
+            // Collect all unique timestamps for x-axis labels
+            const allTs = [...new Set(rows.map(r => r.recorded_at))].sort((a, b) => a - b);
+
+            const datasets = channels.map(ch => {
+                const map = {};
+                (byChannel[ch.key] || []).forEach(r => { map[r.recorded_at] = r.temp_f; });
+                return {
+                    channelKey: ch.key,
+                    label: ch.name,
+                    data: allTs.map(ts => map[ts] ?? null),
+                    borderColor: ch.color,
+                    backgroundColor: ch.color,
+                    tension: 0.1,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    spanGaps: false,
+                    hidden: visibility[ch.key] === false,
+                };
+            });
+
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: allTs.map(formatLabel),
+                    datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'Temperature (°F)' },
+                        },
+                        x: {
+                            ticks: { maxRotation: 45, minRotation: 45, maxTicksLimit: 20 },
+                        },
+                    },
+                    plugins: {
+                        legend: { position: 'right' },
+                        tooltip: {
+                            backgroundColor: 'rgba(255,255,255,0.95)',
+                            titleColor: '#1e293b',
+                            bodyColor: '#1e293b',
+                            borderColor: '#e2e8f0',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) + '°F' : '—'}`,
+                            },
+                        },
+                    },
+                },
+            });
+
+            // Sync toggle button states
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                const ds = chart.data.datasets.find(d => d.channelKey === btn.dataset.key);
+                if (ds) btn.classList.toggle('active', !ds.hidden);
+            });
+        }
+
+        loadAndDraw().catch(console.error);
+    </script>
+</body>
+</html>

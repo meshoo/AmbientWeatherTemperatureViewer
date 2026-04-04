@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Daily Patterns — AW Graphs</title>
+    <%- include('partials/head') %>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <%- include('partials/nav') %>
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">Daily Temperature Patterns</h1>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="timeSelect">Time:</label>
+                <select id="timeSelect" class="select">
+                    <% times.forEach(t => { %>
+                        <option value="<%= t.name %>" <%= selectedTime === t.name ? 'selected' : '' %>>
+                            <%= t.name %> (<%= t.hour %>:00)
+                        </option>
+                    <% }); %>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="monthSelect">Period:</label>
+                <select id="monthSelect" class="select">
+                    <% [1,2,3,4,5,6].forEach(m => { %>
+                        <option value="<%= m %>" <%= months === m ? 'selected' : '' %>>
+                            <%= m %> Month<%= m > 1 ? 's' : '' %>
+                        </option>
+                    <% }); %>
+                </select>
+            </div>
+            <button class="btn" id="manageSensorsBtn">Manage Channels</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="patternChart"></canvas>
+        </div>
+
+        <div class="stats-panel">
+            <h2>Channel Statistics</h2>
+            <div id="statsContent"></div>
+            <label style="font-size:0.875rem; margin-top:0.5rem; display:inline-flex; gap:0.4rem; align-items:center; cursor:pointer;">
+                <input type="checkbox" id="removeOutliers" checked>
+                Remove outliers (±2σ)
+            </label>
+        </div>
+    </div>
+
+    <!-- Manage Channels Modal -->
+    <div id="channelModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h2>Manage Channels</h2>
+            <div id="channelList"></div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="cancelModal">Cancel</button>
+                <button class="btn" id="saveChannels">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const initialChannels = <%- JSON.stringify(channels) %>;
+        let channelSettings = initialChannels.map(c => ({ ...c }));
+        let chart = null;
+        let patternData = null;
+
+        function updateUrl() {
+            const time = document.getElementById('timeSelect').value;
+            const months = document.getElementById('monthSelect').value;
+            window.location.href = `/patterns?time=${encodeURIComponent(time)}&months=${months}`;
+        }
+
+        document.getElementById('timeSelect').addEventListener('change', updateUrl);
+        document.getElementById('monthSelect').addEventListener('change', updateUrl);
+
+        async function loadAndDraw() {
+            const keys = channelSettings.map(c => c.key).join(',');
+            const res = await fetch(`/api/patterns?channels=${keys}&time=${encodeURIComponent('<%= selectedTime %>')}&months=<%= months %>`);
+            const payload = await res.json();
+
+            patternData = payload.data;
+
+            if (!patternData || patternData.length === 0) {
+                document.querySelector('.chart-container').innerHTML =
+                    '<p style="text-align:center;padding:2rem;color:var(--text-muted)">No data for this time period. Try a longer period or trigger a backfill from Admin.</p>';
+                return;
+            }
+
+            drawChart();
+            updateStats();
+        }
+
+        function drawChart() {
+            if (!patternData) return;
+
+            // Collect unique dates, sort
+            const dateSet = [...new Set(patternData.map(r => r.recorded_at.toString().slice(0, 10) ||
+                new Date(r.recorded_at).toISOString().slice(0, 10)))].sort();
+
+            // Build per-channel data keyed by date
+            const byChannelDate = {};
+            for (const row of patternData) {
+                const day = new Date(row.recorded_at).toISOString().slice(0, 10);
+                if (!byChannelDate[row.channel_key]) byChannelDate[row.channel_key] = {};
+                // Keep closest reading per day (first wins since data is sorted)
+                if (!byChannelDate[row.channel_key][day]) {
+                    byChannelDate[row.channel_key][day] = row.temp_f;
+                }
+            }
+
+            const uniqueDates = [...new Set(
+                patternData.map(r => new Date(r.recorded_at).toISOString().slice(0, 10))
+            )].sort();
+
+            const datasets = channelSettings
+                .filter(ch => ch.enabled)
+                .map(ch => ({
+                    label: ch.name,
+                    data: uniqueDates.map(d => byChannelDate[ch.key]?.[d] ?? null),
+                    borderColor: ch.color,
+                    backgroundColor: ch.color,
+                    tension: 0.1,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    spanGaps: false,
+                }));
+
+            const ctx = document.getElementById('patternChart').getContext('2d');
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: uniqueDates.map(d => new Date(d + 'T12:00:00Z').toLocaleDateString([], { month: 'short', day: 'numeric' })),
+                    datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'Temperature (°F)' },
+                        },
+                        x: { ticks: { maxRotation: 45, maxTicksLimit: 30 } },
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '<%= selectedTime %> Temperatures',
+                            font: { size: 14, family: 'Inter' },
+                        },
+                        legend: { position: 'right' },
+                        tooltip: {
+                            backgroundColor: 'rgba(255,255,255,0.95)',
+                            titleColor: '#1e293b',
+                            bodyColor: '#1e293b',
+                            borderColor: '#e2e8f0',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) + '°F' : '—'}`,
+                            },
+                        },
+                    },
+                },
+            });
+        }
+
+        function calcStats(values, removeOutliers) {
+            const valid = values.filter(v => v != null);
+            if (valid.length === 0) return null;
+
+            const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
+            const stdDev = Math.sqrt(valid.map(x => (x - avg) ** 2).reduce((a, b) => a + b, 0) / valid.length);
+
+            if (removeOutliers) {
+                const filtered = valid.filter(v => Math.abs(v - avg) <= 2 * stdDev);
+                if (filtered.length === 0) return { avg: avg.toFixed(1), stdDev: stdDev.toFixed(1), n: valid.length };
+                const avg2 = filtered.reduce((a, b) => a + b, 0) / filtered.length;
+                const sd2 = Math.sqrt(filtered.map(x => (x - avg2) ** 2).reduce((a, b) => a + b, 0) / filtered.length);
+                return { avg: avg2.toFixed(1), stdDev: sd2.toFixed(1), n: filtered.length };
+            }
+
+            return { avg: avg.toFixed(1), stdDev: stdDev.toFixed(1), n: valid.length };
+        }
+
+        function updateStats() {
+            if (!patternData) return;
+            const removeOutliers = document.getElementById('removeOutliers').checked;
+
+            const byChannel = {};
+            for (const row of patternData) {
+                if (!byChannel[row.channel_key]) byChannel[row.channel_key] = [];
+                if (row.temp_f != null) byChannel[row.channel_key].push(row.temp_f);
+            }
+
+            const el = document.getElementById('statsContent');
+            el.innerHTML = channelSettings.filter(ch => ch.enabled).map(ch => {
+                const s = calcStats(byChannel[ch.key] || [], removeOutliers);
+                if (!s) return `<div class="stat-row"><strong>${ch.name}:</strong> no data</div>`;
+                return `<div class="stat-row">
+                    <strong style="color:${ch.color}">${ch.name}:</strong>
+                    avg ${s.avg}°F · σ ${s.stdDev}°F · ${s.n} readings
+                </div>`;
+            }).join('');
+        }
+
+        document.getElementById('removeOutliers').addEventListener('change', updateStats);
+
+        // ── Channel management modal ──
+        document.getElementById('manageSensorsBtn').addEventListener('click', () => {
+            const list = document.getElementById('channelList');
+            list.innerHTML = channelSettings.map(ch => `
+                <div class="channel-item">
+                    <input class="channel-input" type="text" value="${ch.name}" data-key="${ch.key}">
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${ch.enabled ? 'checked' : ''} data-key="${ch.key}">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            `).join('');
+            document.getElementById('channelModal').style.display = 'flex';
+        });
+
+        document.getElementById('cancelModal').addEventListener('click', () => {
+            document.getElementById('channelModal').style.display = 'none';
+        });
+
+        document.getElementById('saveChannels').addEventListener('click', async () => {
+            const inputs = document.querySelectorAll('.channel-input');
+            const toggles = document.querySelectorAll('#channelList .toggle-switch input');
+
+            const updates = Array.from(inputs).map((inp, i) => ({
+                key: inp.dataset.key,
+                name: inp.value.trim(),
+                enabled: toggles[i].checked,
+            }));
+
+            await Promise.all(updates.map(u =>
+                fetch(`/api/channels/${u.key}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: u.name, enabled: u.enabled }),
+                })
+            ));
+
+            channelSettings = channelSettings.map(ch => {
+                const u = updates.find(x => x.key === ch.key);
+                return u ? { ...ch, name: u.name, enabled: u.enabled } : ch;
+            });
+
+            document.getElementById('channelModal').style.display = 'none';
+            drawChart();
+            updateStats();
+        });
+
+        loadAndDraw().catch(console.error);
+    </script>
+</body>
+</html>
