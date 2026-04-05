@@ -16,9 +16,10 @@ COPY public/ ./public/
 COPY server.js ./
 
 # Runtime data directory (mounted as Docker volume)
-RUN mkdir -p /app/data
+# Use sticky bit so Docker volume mounts remain writable by appuser (UID 100)
+RUN mkdir -p /app/data && chmod 777 /app/data
 
-# Non-root user
+# Non-root user (gets UID 100 in alpine)
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
     && chown -R appuser:appgroup /app
 USER appuser
