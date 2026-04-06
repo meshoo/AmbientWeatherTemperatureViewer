@@ -1,0 +1,77 @@
+# AmbientWeatherTemperatureViewer — AI Session Context
+
+Copy this file to `CLAUDE.md` and fill in your personal details.
+`CLAUDE.md` is gitignored so your infrastructure specifics stay private.
+
+## What This Project Is
+
+Personal weather monitoring web app. Pulls temperature from Ambient Weather cloud API, stores in
+SQLite, visualizes with Chart.js. Single user, runs on a small cloud VM (e.g. GCP e2-micro free
+tier) behind Tailscale.
+
+- **Current page**: live sensor readings, auto-refreshes via `/api/current`
+- **History page**: time-series chart (24h / 7d / 30d / 90d)
+- **Compare page**: day-over-day overlay chart — HVAC effectiveness analysis
+- **Patterns page**: snapshot at a specific time-of-day across months
+- **Admin page**: channel config, collection status, manual backfill
+
+## Stack
+
+- Node.js 20 + Express 4 · EJS templates · Chart.js 4 via CDN · better-sqlite3 · node-cron
+- Docker Compose · Tailscale host-install on VM
+
+## Your Infrastructure
+
+Fill these in after deploying:
+
+- **GCP project**: `your-project-id`
+- **VM name/zone**: `your-vm-name`, `us-central1-a`
+- **Tailscale FQDN**: `your-hostname.your-tailnet.ts.net`
+- **SSH**: `gcloud compute ssh your-vm-name --zone=us-central1-a --project=your-project-id --tunnel-through-iap`
+
+## Critical Architecture Decisions (Do Not Revisit)
+
+1. **Single container**: web server + collector in the same Node.js process.
+2. **Synchronous DB**: `better-sqlite3` is synchronous — do not convert to async.
+3. **Routes never call AW API**: all AW calls happen in `src/services/ambientWeather.js` on a schedule.
+4. **Daikin is push-based (stub)**: `/api/ingest/daikin` returns 404 unless `INGEST_TOKEN` is set.
+
+## File Map
+
+```
+server.js                       Entry point
+src/app.js                      Express factory
+src/collector.js                Cron: 5-min poll, weekly prune, startup backfill
+src/db/schema.js                CREATE TABLE + default channel seed
+src/db/index.js                 better-sqlite3 singleton
+src/db/queries.js               All SQL query functions
+src/services/ambientWeather.js  AW API client + rate limiting
+src/services/mockData.js        Mock AW API (USE_MOCK_DATA=true)
+src/routes/api.js               JSON API + Daikin ingest stub
+src/routes/views.js             EJS page routes
+views/                          EJS templates
+public/style.css                All CSS
+scripts/migrate-json-cache.js   One-time JSON cache migration
+infrastructure/                 GCP setup + update scripts
+```
+
+## Ambient Weather API Constraints
+
+- 1500ms minimum between calls · 288 records max per call (24h at 5-min intervals)
+- Must chunk date ranges into 24-hour windows
+- npm package: `ambient-weather-api@0.0.6`
+
+## Local Development
+
+```bash
+npm install
+cp .env.example .env   # no real keys needed for mock mode
+USE_MOCK_DATA=true node server.js
+# open http://localhost:3000
+```
+
+## Common Tasks
+
+- **Manual backfill**: POST /api/admin/backfill `{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`
+- **Update on VM**: `cd ~/ambientweather && ./infrastructure/update.sh`
+- **Backup DB**: `docker compose exec app sh -c 'cat /app/data/ambientweather.db' > backup.db`

@@ -2,12 +2,13 @@
 'use strict';
 
 /**
- * One-time migration: imports CursorAWGraphs temperature_cache.json → ClaudeAWGraphs SQLite.
+ * One-time migration: imports an existing temperature_cache.json (from older JSON-based
+ * Ambient Weather apps) into the SQLite database used by AmbientWeatherTemperatureViewer.
  *
  * Usage:
  *   node scripts/migrate-json-cache.js \
- *     --input "C:/Users/micha/OneDrive/Documents-mike-pc2201/Development/CursorAWGraphs/data/temperature_cache.json" \
- *     --db ./data/claudeawgraphs.db
+ *     --input "/path/to/temperature_cache.json" \
+ *     --db ./data/ambientweather.db
  *
  * The script is idempotent — safe to run multiple times (uses INSERT OR IGNORE).
  */
@@ -23,8 +24,11 @@ function getArg(name) {
     return idx !== -1 ? args[idx + 1] : null;
 }
 
-const inputPath = getArg('--input') ||
-    'C:/Users/micha/OneDrive/Documents-mike-pc2201/Development/CursorAWGraphs/data/temperature_cache.json';
+const inputPath = getArg('--input');
+if (!inputPath) {
+    console.error('ERROR: --input <path/to/temperature_cache.json> is required');
+    process.exit(1);
+}
 const dbPath = getArg('--db') || path.join(__dirname, '../data/claudeawgraphs.db');
 
 console.log('Input JSON:', inputPath);

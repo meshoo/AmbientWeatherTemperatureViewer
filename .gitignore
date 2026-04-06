@@ -1,5 +1,8 @@
-# Environment / secrets
+# Environment / secrets — never commit these
 .env
+
+# Personal AI session context (contains personal infra details)
+CLAUDE.md
 
 # Dependencies
 node_modules/
