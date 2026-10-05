@@ -4,6 +4,12 @@
 # Personal AI session context (contains personal infra details)
 CLAUDE.md
 
+# Personal ops runbook (project IDs, tailnet FQDN, bucket names)
+RUNBOOK.md
+
+# Host-specific compose overrides (GCP metadata DNS, etc.)
+docker-compose.override.yml
+
 # Dependencies
 node_modules/
 
