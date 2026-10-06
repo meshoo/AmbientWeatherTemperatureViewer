@@ -122,8 +122,8 @@
                 .map(ch => ({
                     label: ch.name,
                     data: uniqueDates.map(d => byChannelDate[ch.key]?.[d] ?? null),
-                    borderColor: ch.color,
-                    backgroundColor: ch.color,
+                    borderColor: SensorPalette.color(ch.key, SensorPalette.mode()),
+                    backgroundColor: SensorPalette.color(ch.key, SensorPalette.mode()),
                     tension: 0.1,
                     borderWidth: 2,
                     pointRadius: 3,
@@ -205,7 +205,7 @@
                 const s = calcStats(byChannel[ch.key] || [], removeOutliers);
                 if (!s) return `<div class="stat-row"><strong>${ch.name}:</strong> no data</div>`;
                 return `<div class="stat-row">
-                    <strong style="color:${ch.color}">${ch.name}:</strong>
+                    <span class="legend-swatch" style="background:${SensorPalette.color(ch.key, SensorPalette.mode())}"></span><strong>${ch.name}:</strong>
                     avg ${s.avg}°F · σ ${s.stdDev}°F · ${s.n} readings
                 </div>`;
             }).join('');

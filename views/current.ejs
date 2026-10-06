@@ -55,7 +55,7 @@
             hero.style.display = '';
 
             grid.innerHTML = readings.map(r => `
-                <div class="sensor-card" style="border-left-color:${r.color || '#3b82f6'}">
+                <div class="sensor-card" style="border-left-color:${SensorPalette.color(r.channel_key, SensorPalette.mode())}">
                     <div class="sensor-header">
                         <span class="sensor-name">${r.name || r.channel_key}</span>
                         ${battBadge(r.battery_ok)}

@@ -51,7 +51,7 @@
             const btn = document.createElement('button');
             btn.className = 'toggle-btn' + (visible ? ' active' : '');
             btn.textContent = ch.name;
-            btn.style.borderColor = ch.color;
+            btn.style.borderColor = SensorPalette.color(ch.key, SensorPalette.mode());
             btn.dataset.key = ch.key;
             btn.onclick = () => {
                 const ds = chart.data.datasets.find(d => d.channelKey === ch.key);
@@ -103,8 +103,8 @@
                     channelKey: ch.key,
                     label: ch.name,
                     data: allTs.map(ts => map[ts] ?? null),
-                    borderColor: ch.color,
-                    backgroundColor: ch.color,
+                    borderColor: SensorPalette.color(ch.key, SensorPalette.mode()),
+                    backgroundColor: SensorPalette.color(ch.key, SensorPalette.mode()),
                     tension: 0.1,
                     borderWidth: 2,
                     pointRadius: 0,
