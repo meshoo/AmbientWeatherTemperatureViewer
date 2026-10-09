@@ -50,7 +50,7 @@ class AmbientWeatherCollector {
             const inserted = q.insertReadingsBatch(this._db, rows);
             console.log(`[aw] poll: inserted ${inserted} new readings`);
         } catch (err) {
-            console.error('[aw] poll error:', err.message);
+            console.error('[aw] poll error:', describeError(err));
         }
     }
 
@@ -81,7 +81,7 @@ class AmbientWeatherCollector {
 
             console.log('[aw] backfill: complete');
         } catch (err) {
-            console.error('[aw] backfill error:', err.message);
+            console.error('[aw] backfill error:', describeError(err));
         } finally {
             this._backfilling = false;
         }
@@ -116,7 +116,7 @@ class AmbientWeatherCollector {
                     q.recordCollectionWindow(this._db, 'ambient', cursor, chunkEnd, 0);
                 }
             } catch (err) {
-                console.error(`[aw] chunk fetch error (${new Date(cursor).toLocaleDateString()}):`, err.message);
+                console.error(`[aw] chunk fetch error (${new Date(cursor).toLocaleDateString()}):`, describeError(err));
                 // Don't record the window — we'll retry next backfill run
             }
 
@@ -169,6 +169,28 @@ class AmbientWeatherCollector {
 
         return rows;
     }
+}
+
+/**
+ * One-line description of a request-promise error. Its .message is just
+ * String(cause), so a network failure logs as a bare "AggregateError"; the
+ * useful detail (ETIMEDOUT, ECONNREFUSED, ENOTFOUND, per address) is on
+ * .cause, and HTTP failures carry .statusCode.
+ */
+function describeError(err) {
+    if (err.statusCode) {
+        const body = typeof err.error === 'string' ? err.error : JSON.stringify(err.error ?? '');
+        return `HTTP ${err.statusCode} ${body.slice(0, 200)}`;
+    }
+
+    const cause = err.cause || err;
+    const attempts = Array.isArray(cause.errors) && cause.errors.length ? cause.errors : [cause];
+    const parts = attempts.map(e => {
+        const host = e.address || e.hostname;
+        const where = host ? ` ${host}${e.port ? ':' + e.port : ''}` : '';
+        return e.code ? `${e.code}${where}` : `${e.name || 'Error'}${where}: ${e.message}`;
+    });
+    return [...new Set(parts)].join(', ');
 }
 
 function sleep(ms) {
